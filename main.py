@@ -10,10 +10,11 @@ from datetime import datetime, timedelta
 import jwt
 from passlib.context import CryptContext
 from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 import base64
+import json
+import asyncio
 
 load_dotenv()
 
@@ -54,12 +55,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 # In-memory storage
 users_db: Dict[int, Dict] = {}
 tokens_db: Dict[str, int] = {}
-
-# Initialize Hugging Face client
-hf_client = InferenceClient(
-    provider="featherless-ai",
-    api_key=HF_TOKEN,
-) if HF_TOKEN else None
+chat_history: Dict[str, List[Dict]] = {}
 
 # ==================== MODELS ====================
 
@@ -70,11 +66,34 @@ class User(BaseModel):
     email: Optional[str] = None
     avatar: str
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: str
+    fileContext: Optional[Dict[str, Any]] = None
+
 class AnalyzeRequest(BaseModel):
     prompt: str
     selectedCode: Optional[str] = ""
     currentFile: Optional[Dict[str, Any]] = {}
     repository: Optional[List[Dict[str, Any]]] = []
+    conversationHistory: Optional[List[Dict[str, Any]]] = []
+
+class UpdateFileRequest(BaseModel):
+    owner: str
+    repo: str
+    path: str
+    content: str
+    message: str
+    sha: str
+    branch: Optional[str] = "main"
+
+class PushChangesRequest(BaseModel):
+    owner: str
+    repo: str
+    changes: List[Dict[str, Any]]
+    commitMessage: str
+    branch: Optional[str] = "main"
 
 # ==================== AUTHENTICATION ====================
 
@@ -200,6 +219,9 @@ async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Logout user"""
     token = credentials.credentials
     if token in tokens_db:
+        user_id = tokens_db[token]
+        if str(user_id) in chat_history:
+            del chat_history[str(user_id)]
         del tokens_db[token]
     return {"message": "Logged out successfully"}
 
@@ -285,7 +307,6 @@ async def get_repository_tree(
     
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            # Get repository info first
             repo_response = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}",
                 headers={
@@ -300,7 +321,6 @@ async def get_repository_tree(
             repo_data = repo_response.json()
             default_branch = repo_data.get("default_branch", "main")
             
-            # Get tree recursively
             tree_response = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1",
                 headers={
@@ -313,8 +333,6 @@ async def get_repository_tree(
                 raise HTTPException(status_code=404, detail="Failed to fetch repository tree")
             
             tree_data = tree_response.json()
-            
-            # Build hierarchical structure
             file_tree = build_tree_structure(tree_data["tree"])
             
             return {
@@ -354,7 +372,6 @@ async def get_file_content(
             
             file_data = response.json()
             
-            # Decode content
             try:
                 content = base64.b64decode(file_data["content"]).decode("utf-8")
             except:
@@ -371,107 +388,335 @@ async def get_file_content(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch file: {str(e)}")
 
-# ==================== AI ANALYSIS ====================
+@app.put("/api/repository/file/update")
+async def update_file(
+    request: UpdateFileRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Update file content in repository"""
+    github_token = current_user["github_token"]
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            encoded_content = base64.b64encode(request.content.encode("utf-8")).decode("utf-8")
+            
+            response = await client.put(
+                f"https://api.github.com/repos/{request.owner}/{request.repo}/contents/{request.path}",
+                headers={
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                json={
+                    "message": request.message,
+                    "content": encoded_content,
+                    "sha": request.sha,
+                    "branch": request.branch
+                }
+            )
+            
+            if response.status_code not in [200, 201]:
+                raise HTTPException(status_code=400, detail=f"Failed to update file: {response.text}")
+            
+            result = response.json()
+            
+            return {
+                "message": "File updated successfully",
+                "sha": result["content"]["sha"],
+                "commit": result["commit"]["sha"]
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to update file: {str(e)}")
 
-@app.post("/api/analyze")
-async def analyze_code(
+@app.post("/api/repository/push")
+async def push_changes(
+    request: PushChangesRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Push multiple file changes to repository"""
+    github_token = current_user["github_token"]
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            results = []
+            
+            for change in request.changes:
+                encoded_content = base64.b64encode(change["content"].encode("utf-8")).decode("utf-8")
+                
+                response = await client.put(
+                    f"https://api.github.com/repos/{request.owner}/{request.repo}/contents/{change['path']}",
+                    headers={
+                        "Authorization": f"token {github_token}",
+                        "Accept": "application/vnd.github.v3+json"
+                    },
+                    json={
+                        "message": request.commitMessage,
+                        "content": encoded_content,
+                        "sha": change["sha"],
+                        "branch": request.branch
+                    }
+                )
+                
+                if response.status_code in [200, 201]:
+                    result = response.json()
+                    results.append({
+                        "path": change["path"],
+                        "status": "success",
+                        "sha": result["content"]["sha"]
+                    })
+                else:
+                    results.append({
+                        "path": change["path"],
+                        "status": "failed",
+                        "error": response.text
+                    })
+            
+            return {
+                "message": "Push completed",
+                "results": results,
+                "totalFiles": len(request.changes),
+                "successCount": len([r for r in results if r["status"] == "success"])
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to push changes: {str(e)}")
+
+# ==================== CHAT & AI ANALYSIS ====================
+
+@app.post("/api/chat")
+async def chat_with_ai(
     request: AnalyzeRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Analyze code using AI"""
+    """Chat with AI assistant using DeepSeek via Hugging Face"""
     if not request.prompt:
         raise HTTPException(status_code=400, detail="Prompt is required")
     
-    # Build AI prompt
-    ai_prompt = f"""You are CatAI, an expert code assistant for the CodeAtEase platform.
-
-User's Question: {request.prompt}
-
-"""
+    user_id = str(current_user["id"])
     
-    if request.currentFile and request.currentFile.get('path'):
-        ai_prompt += f"""Current File: {request.currentFile.get('path')}
-
-File Content:
-```
-{request.currentFile.get('content', '')[:2000]}
-```
-
-"""
+    if user_id not in chat_history:
+        chat_history[user_id] = []
     
-    if request.selectedCode:
-        ai_prompt += f"""Selected Code:
-```
-{request.selectedCode}
-```
-
-"""
+    # Build context-aware prompt
+    system_prompt = build_system_prompt()
+    user_prompt = build_user_prompt(request, chat_history[user_id])
     
-    ai_prompt += """Please analyze the code and provide:
-1. Any issues or bugs found
-2. Recommended fixes with code examples
-3. Best practices and improvements
-4. Explanation of the solution
-
-Be specific and provide actionable code snippets."""
-
     try:
-        # Use Hugging Face if available
-        if hf_client:
-            response = await analyze_with_hf(ai_prompt)
+        # Call Hugging Face API with DeepSeek
+        if HF_TOKEN:
+            print(f"[CHAT] User {user_id} asking: {request.prompt[:100]}")
+            response_text = await call_deepseek_api(system_prompt, user_prompt, chat_history[user_id])
+            print(f"[CHAT] AI responded: {response_text[:100]}...")
         else:
-            # Fallback mock response
-            response = generate_mock_response(request)
+            print("[CHAT] No HF_TOKEN, using mock response")
+            response_text = generate_mock_response(request)
         
-        return {"response": response}
+        # Store messages in history
+        user_message = {
+            "role": "user",
+            "content": request.prompt,
+            "timestamp": datetime.now().isoformat(),
+            "fileContext": {
+                "path": request.currentFile.get("path") if request.currentFile else None,
+                "hasSelection": bool(request.selectedCode)
+            }
+        }
+        chat_history[user_id].append(user_message)
+        
+        assistant_message = {
+            "role": "assistant",
+            "content": response_text,
+            "timestamp": datetime.now().isoformat()
+        }
+        chat_history[user_id].append(assistant_message)
+        
+        # Keep only last 20 messages
+        if len(chat_history[user_id]) > 20:
+            chat_history[user_id] = chat_history[user_id][-20:]
+        
+        return {
+            "response": response_text,
+            "conversationHistory": chat_history[user_id]
+        }
     
     except Exception as e:
-        # Fallback to mock response on error
-        response = generate_mock_response(request)
-        return {"response": response}
+        print(f"[CHAT] AI Error: {str(e)}")
+        print(f"[CHAT] Falling back to mock response")
+        response_text = generate_mock_response(request)
+        return {
+            "response": response_text,
+            "conversationHistory": chat_history.get(user_id, []),
+            "error": str(e),
+            "fallback": True
+        }
 
-async def analyze_with_hf(prompt: str) -> str:
-    """Analyze code using Hugging Face LLaMA model"""
-    try:
-        result = hf_client.text_generation(
-            prompt,
-            model="meta-llama/Llama-3.1-8B",
-            max_new_tokens=512,
-            temperature=0.7,
-        )
+async def call_deepseek_api(system_prompt: str, user_prompt: str, history: List[Dict]) -> str:
+    """Call AI model via Hugging Face Router API"""
+    
+    # Build messages for chat completion
+    messages = [
+        {"role": "system", "content": system_prompt}
+    ]
+    
+    # Add conversation history
+    recent_history = history[-4:] if len(history) > 4 else history
+    for msg in recent_history:
+        messages.append({
+            "role": msg["role"],
+            "content": msg["content"][:500]  # Limit history length
+        })
+    
+    # Add current user prompt
+    messages.append({"role": "user", "content": user_prompt})
+    
+    # Call Hugging Face Router API (new endpoint)
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        try:
+            print(f"[AI] Calling Hugging Face Router API...")
+            
+            response = await client.post(
+                "https://router.huggingface.co/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {HF_TOKEN}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+                    "messages": messages,
+                    "max_tokens": 2000,
+                    "temperature": 0.7,
+                    "top_p": 0.95,
+                    "stream": False
+                }
+            )
+            
+            print(f"[AI] Response status: {response.status_code}")
+            
+            if response.status_code == 503:
+                # Model is loading, wait and retry
+                print("[AI] Model is loading, retrying in 10 seconds...")
+                await asyncio.sleep(10)
+                
+                response = await client.post(
+                    "https://router.huggingface.co/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {HF_TOKEN}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "Qwen/Qwen2.5-Coder-32B-Instruct",
+                        "messages": messages,
+                        "max_tokens": 2000,
+                        "temperature": 0.7,
+                        "top_p": 0.95,
+                        "stream": False
+                    }
+                )
+            
+            if response.status_code != 200:
+                error_text = response.text
+                print(f"[AI] API Error: {response.status_code} - {error_text}")
+                raise Exception(f"API returned status {response.status_code}: {error_text}")
+            
+            result = response.json()
+            print(f"[AI] Response received: {str(result)[:200]}...")
+            
+            # Extract response from OpenAI-compatible format
+            if "choices" in result and len(result["choices"]) > 0:
+                content = result["choices"][0]["message"]["content"]
+                return content.strip()
+            
+            raise Exception(f"Unexpected API response format: {result}")
+                
+        except httpx.TimeoutException:
+            print("[AI] Request timed out")
+            raise Exception("API request timed out")
+        except Exception as e:
+            print(f"[AI] Error: {str(e)}")
+            raise
+
+def build_system_prompt() -> str:
+    """Build system prompt for the AI"""
+    return """You are CatAI, an expert code assistant. You MUST provide complete, working code solutions.
+
+CRITICAL RULES:
+1. When asked to add/modify code, show the COMPLETE updated file content
+2. NEVER give generic advice - always show actual code
+3. Format code in markdown blocks with language: ```python or ```yaml etc.
+4. Be concise but complete
+
+Example response format:
+
+Here's the updated requirements.txt:
+
+```txt
+fastapi==0.104.1
+uvicorn==0.24.0
+gunicorn==21.2.0
+httpx==0.25.1
+```
+
+I added gunicorn version 21.2.0 to the requirements."""
+
+def build_user_prompt(request: AnalyzeRequest, history: List[Dict]) -> str:
+    """Build user prompt with context"""
+    
+    prompt_parts = []
+    
+    # Add current file context
+    if request.currentFile and request.currentFile.get('path'):
+        prompt_parts.append(f"**Current File:** `{request.currentFile.get('path')}`")
         
-        if isinstance(result, str):
-            return result
-        elif isinstance(result, list) and len(result) > 0:
-            return result[0].get("generated_text", "No response generated")
-        elif isinstance(result, dict):
-            return result.get("generated_text", "No response generated")
-        
-        return "No response generated"
-    except Exception as e:
-        print(f"HF API Error: {str(e)}")
-        raise
+        if request.currentFile.get('content'):
+            content_preview = request.currentFile.get('content')[:1500]
+            prompt_parts.append(f"\n**File Content:**\n```\n{content_preview}\n```")
+    
+    # Add selected code if exists
+    if request.selectedCode:
+        prompt_parts.append(f"\n**Selected Code:**\n```\n{request.selectedCode}\n```")
+    
+    # Add user's question
+    prompt_parts.append(f"\n**User Request:** {request.prompt}")
+    
+    return "\n".join(prompt_parts)
+
+@app.get("/api/chat/history")
+async def get_chat_history(current_user: dict = Depends(get_current_user)):
+    """Get chat history for current user"""
+    user_id = str(current_user["id"])
+    return {"history": chat_history.get(user_id, [])}
+
+@app.delete("/api/chat/history")
+async def clear_chat_history(current_user: dict = Depends(get_current_user)):
+    """Clear chat history for current user"""
+    user_id = str(current_user["id"])
+    if user_id in chat_history:
+        chat_history[user_id] = []
+    return {"message": "Chat history cleared"}
 
 def generate_mock_response(request: AnalyzeRequest) -> str:
     """Generate mock AI response for testing"""
-    response = f"Analysis for: '{request.prompt}'\n\n"
+    response = f"I understand you want help with: '{request.prompt}'\n\n"
     
     if request.currentFile and request.currentFile.get('path'):
-        response += f"File: {request.currentFile.get('path')}\n\n"
+        response += f"Looking at file: `{request.currentFile.get('path')}`\n\n"
     
     if request.selectedCode:
-        response += f"Selected Code Analysis:\n{request.selectedCode[:200]}...\n\n"
+        response += f"Analyzing your selected code...\n\n"
     
-    response += """✓ Code Quality: Good
-✓ Best Practices: Consider adding error handling
-✓ Performance: No major issues found
-✓ Security: Looks safe
+    response += """Here's my analysis:
 
-Recommendations:
-- Add input validation
-- Include error handling
-- Add unit tests
-- Consider code documentation"""
+✓ **Code Structure:** Well organized
+✓ **Best Practices:** Consider improvements below
+✓ **Performance:** No major bottlenecks detected
+
+**Recommendations:**
+1. Add error handling for edge cases
+2. Include input validation
+3. Add unit tests for critical functions
+4. Consider adding documentation
+
+Would you like me to help implement any of these improvements?"""
     
     return response
 
@@ -480,7 +725,6 @@ def build_tree_structure(items: List[Dict]) -> List[Dict]:
     tree = []
     path_dict = {}
     
-    # Sort items to ensure folders come before files
     items_sorted = sorted(items, key=lambda x: (x['path'].count('/'), x['path']))
     
     for item in items_sorted:
@@ -516,7 +760,8 @@ def build_tree_structure(items: List[Dict]) -> List[Dict]:
 async def health_check():
     return {
         "status": "healthy",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "ai_available": HF_TOKEN is not None
     }
 
 if __name__ == "__main__":

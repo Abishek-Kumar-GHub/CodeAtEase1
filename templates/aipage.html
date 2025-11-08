@@ -43,6 +43,11 @@
 
         .file-item.active {
             background: #2a2a2a;
+            border-left: 3px solid #FFFFFF;
+        }
+
+        .file-item.modified {
+            color: #FFA500;
         }
 
         #codeEditor {
@@ -60,11 +65,6 @@
             background-color: #1a1a1a !important;
             border: 2px solid #FFFFFF !important;
             color: #FFFFFF !important;
-        }
-
-        #aiResponse {
-            white-space: pre-wrap;
-            word-wrap: break-word;
         }
 
         .folder-icon, .file-icon {
@@ -89,18 +89,104 @@
             background: #666666;
         }
 
-        .dropdown {
-            display: none;
-            position: absolute;
-            background: #1a1a1a;
-            border: 2px solid #FFFFFF;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(255,255,255,0.1);
-            z-index: 100;
+        /* Chat Styles */
+        .chat-message {
+            margin-bottom: 16px;
+            animation: slideIn 0.3s ease;
         }
 
-        .dropdown.show {
-            display: block;
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .user-message {
+            background: #2a2a2a;
+            border-left: 3px solid #FFFFFF;
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .assistant-message {
+            background: #1a1a1a;
+            border-left: 3px solid #666;
+            padding: 12px;
+            border-radius: 8px;
+        }
+
+        .message-content {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.5;
+        }
+
+        .timestamp {
+            font-size: 10px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .code-block {
+            background: #000;
+            border: 1px solid #333;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 8px 0;
+            overflow-x: auto;
+        }
+
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 12px;
+        }
+
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: #666;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+            }
+            30% {
+                transform: translateY(-10px);
+            }
+        }
+
+        .apply-code-btn {
+            transition: all 0.2s;
+        }
+
+        .apply-code-btn:hover {
+            transform: translateX(2px);
+        }
+
+        .modified-indicator {
+            width: 8px;
+            height: 8px;
+            background: #FFA500;
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 8px;
         }
     </style>
 </head>
@@ -121,11 +207,11 @@
             </div>
 
             <!-- Push to GitHub Button -->
-            <button id="pushBtn" class="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-lg hover:bg-gray-200 font-medium">
+            <button id="pushBtn" class="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-lg hover:bg-gray-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
                 </svg>
-                Push to GitHub
+                <span id="pushBtnText">Push to GitHub</span>
             </button>
 
             <!-- Account -->
@@ -151,7 +237,10 @@
         <!-- Left Panel - File Explorer -->
         <div id="leftPanel" class="bg-black border-r-2 border-gray-800 overflow-auto" style="width: 20%;">
             <div class="p-4">
-                <h3 class="font-bold text-white mb-3">Files</h3>
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="font-bold text-white">Files</h3>
+                    <span id="modifiedCount" class="hidden text-xs px-2 py-1 bg-orange-600 rounded">0 modified</span>
+                </div>
                 <div id="fileTree"></div>
             </div>
         </div>
@@ -161,8 +250,14 @@
 
         <!-- Middle Panel - Code Editor -->
         <div id="middlePanel" class="flex flex-col bg-black overflow-hidden" style="width: 60%;">
-            <div id="fileHeader" class="bg-gray-900 px-4 py-2 border-b-2 border-gray-800 hidden">
-                <span id="currentFileName" class="font-medium text-white"></span>
+            <div id="fileHeader" class="bg-gray-900 px-4 py-2 border-b-2 border-gray-800 hidden flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span id="currentFileName" class="font-medium text-white"></span>
+                    <span id="fileModifiedIndicator" class="hidden modified-indicator"></span>
+                </div>
+                <button id="saveFileBtn" class="hidden text-xs px-3 py-1 bg-white text-black rounded hover:bg-gray-200">
+                    Save Changes
+                </button>
             </div>
             <div id="emptyState" class="flex-1 flex items-center justify-center text-gray-500">
                 <div class="text-center">
@@ -178,42 +273,56 @@
         <!-- Right Resizer -->
         <div id="rightResizer" class="resizer"></div>
 
-        <!-- Right Panel - AI Assistant -->
+        <!-- Right Panel - AI Chat -->
         <div id="rightPanel" class="border-l-2 border-gray-800 bg-black flex flex-col" style="width: 20%;">
             <div class="bg-white px-4 py-3 flex items-center justify-between">
                 <div class="flex items-center gap-2">
                     <svg class="w-5 h-5 text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
                     </svg>
-                    <h3 class="font-bold text-black">CatAI</h3>
+                    <h3 class="font-bold text-black">CatAI Chat</h3>
                 </div>
-                <button id="closeAiBtn" class="text-black hover:bg-gray-200 p-1 rounded">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
-            </div>
-
-            <div class="flex-1 overflow-auto p-4">
-                <div id="aiEmptyState" class="text-center text-gray-500 mt-8">
-                    <svg class="w-12 h-12 mx-auto mb-4 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
-                    </svg>
-                    <p>Ask me anything about your code</p>
-                </div>
-                <div id="aiResponseContainer" class="hidden bg-gray-900 rounded-lg p-4 border-2 border-gray-700">
-                    <pre id="aiResponse" class="text-sm text-white"></pre>
+                <div class="flex items-center gap-2">
+                    <button id="clearChatBtn" class="text-black hover:bg-gray-200 p-1 rounded" title="Clear chat">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                    <button id="closeAiBtn" class="text-black hover:bg-gray-200 p-1 rounded">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
                 </div>
             </div>
 
+            <!-- Chat Messages -->
+            <div id="chatContainer" class="flex-1 overflow-auto p-4">
+                <div id="chatMessages">
+                    <div class="text-center text-gray-500 text-sm mb-4">
+                        <svg class="w-12 h-12 mx-auto mb-2 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                        </svg>
+                        <p>Start a conversation with CatAI</p>
+                        <p class="text-xs mt-1">Ask about your code, get suggestions, or request help</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Input -->
             <div class="p-4 border-t-2 border-gray-800">
-                <textarea id="aiPrompt" placeholder="Ask about selected code or entire repository..." class="w-full px-3 py-2 border-2 border-gray-700 bg-gray-900 text-white rounded-lg resize-none focus:outline-none focus:border-white placeholder-gray-500" rows="3"></textarea>
-                <button id="analyzeBtn" class="w-full mt-2 px-4 py-2 bg-white text-black rounded-lg hover:bg-gray-200 font-medium flex items-center justify-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
-                    </svg>
-                    <span>Analyze</span>
-                </button>
+                <textarea id="chatInput" placeholder="Ask about your code..." class="w-full px-3 py-2 border-2 border-gray-700 bg-gray-900 text-white rounded-lg resize-none focus:outline-none focus:border-white placeholder-gray-500" rows="3"></textarea>
+                <div class="flex gap-2 mt-2">
+                    <button id="sendChatBtn" class="flex-1 px-4 py-2 bg-white text-black rounded-lg hover:bg-gray-200 font-medium flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                        </svg>
+                        <span>Send</span>
+                    </button>
+                </div>
+                <div class="text-xs text-gray-500 mt-2">
+                    <span id="contextInfo">No file selected</span>
+                </div>
             </div>
         </div>
     </div>
@@ -221,7 +330,7 @@
     <!-- Floating AI Button -->
     <button id="floatingAiBtn" class="hidden fixed bottom-4 right-4 p-3 bg-white text-black rounded-full shadow-lg hover:bg-gray-200">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
         </svg>
     </button>
 
@@ -245,52 +354,41 @@
         let selectedRepo = null;
         let leftWidth = 20;
         let rightWidth = 20;
+        let modifiedFiles = new Map(); // Track modified files
+        let originalContent = ''; // Store original file content
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
-            // Check authentication
             const token = localStorage.getItem('access_token');
             if (!token) {
                 toastr.error('Please login first', '⚠ Error');
-                setTimeout(() => {
-                    window.location.href = '/';
-                }, 1500);
+                setTimeout(() => window.location.href = '/', 1500);
                 return;
             }
 
-            // Load user info
             await loadUser(token);
 
-            // Load selected repository
             const repoData = localStorage.getItem('selectedRepo');
             if (!repoData) {
                 toastr.error('No repository selected', '⚠ Error');
-                setTimeout(() => {
-                    window.location.href = '/repo.html';
-                }, 1500);
+                setTimeout(() => window.location.href = '/repo.html', 1500);
                 return;
             }
 
             selectedRepo = JSON.parse(repoData);
             document.getElementById('repoName').textContent = selectedRepo.full_name;
 
-            // Load repository files
             await loadRepositoryFiles();
+            await loadChatHistory();
         });
 
         // Load user information
         async function loadUser(token) {
             try {
                 const response = await fetch(`${API_URL}/auth/user`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
-
-                if (!response.ok) {
-                    throw new Error('Failed to load user');
-                }
-
+                if (!response.ok) throw new Error('Failed to load user');
                 const user = await response.json();
                 document.getElementById('userName').textContent = user.name || user.username;
                 document.getElementById('userAvatar').textContent = user.avatar;
@@ -303,30 +401,17 @@
         // Load repository files
         async function loadRepositoryFiles() {
             const token = localStorage.getItem('access_token');
-            
             try {
                 toastr.info('Loading repository files...', 'ℹ Loading');
-
                 const response = await fetch(
                     `${API_URL}/api/repository/tree/${selectedRepo.owner}/${selectedRepo.name}`,
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Accept': 'application/json'
-                        }
-                    }
+                    { headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' } }
                 );
-
-                if (!response.ok) {
-                    throw new Error('Failed to load repository files');
-                }
-
+                if (!response.ok) throw new Error('Failed to load repository files');
                 const data = await response.json();
                 fileStructure = data.tree;
-
                 renderFileTree();
                 toastr.success('Repository loaded successfully', '✓ Success');
-
             } catch (error) {
                 console.error('Error loading repository:', error);
                 toastr.error(error.message || 'Failed to load repository files', '⚠ Error');
@@ -340,6 +425,7 @@
             
             function renderItem(item, level = 0) {
                 const div = document.createElement('div');
+                const isModified = modifiedFiles.has(item.path);
                 
                 if (item.type === 'folder') {
                     div.innerHTML = `
@@ -353,28 +439,42 @@
                             <span class="text-sm text-white">${item.name}</span>
                         </div>
                     `;
-                    
                     fileTree.appendChild(div);
-                    
                     if (item.expanded && item.children) {
                         item.children.forEach(child => renderItem(child, level + 1));
                     }
                 } else {
                     div.innerHTML = `
-                        <div class="file-item flex items-center gap-2 px-2 py-1.5 cursor-pointer rounded" data-path="${item.path}" data-type="file" style="padding-left: ${level * 16 + 8}px">
+                        <div class="file-item flex items-center gap-2 px-2 py-1.5 cursor-pointer rounded ${isModified ? 'modified' : ''}" data-path="${item.path}" data-type="file" style="padding-left: ${level * 16 + 8}px">
                             <svg class="file-icon w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                             </svg>
-                            <span class="text-sm text-white">${item.name}</span>
+                            <span class="text-sm">${item.name}</span>
+                            ${isModified ? '<span class="modified-indicator"></span>' : ''}
                         </div>
                     `;
                     fileTree.appendChild(div);
                 }
-                
-                return div;
             }
             
             fileStructure.forEach(item => renderItem(item));
+            updateModifiedCount();
+        }
+
+        // Update modified files count
+        function updateModifiedCount() {
+            const count = modifiedFiles.size;
+            const countEl = document.getElementById('modifiedCount');
+            const pushBtn = document.getElementById('pushBtn');
+            
+            if (count > 0) {
+                countEl.classList.remove('hidden');
+                countEl.textContent = `${count} modified`;
+                pushBtn.disabled = false;
+            } else {
+                countEl.classList.add('hidden');
+                pushBtn.disabled = true;
+            }
         }
 
         // Handle file/folder click
@@ -383,7 +483,6 @@
             if (fileItem) {
                 const path = fileItem.dataset.path;
                 const type = fileItem.dataset.type;
-                
                 if (type === 'folder') {
                     toggleFolder(path);
                 } else {
@@ -392,7 +491,6 @@
             }
         });
 
-        // Toggle folder
         function toggleFolder(path) {
             function findAndToggle(items) {
                 for (let item of items) {
@@ -401,92 +499,229 @@
                         renderFileTree();
                         return true;
                     }
-                    if (item.children && findAndToggle(item.children)) {
-                        return true;
-                    }
+                    if (item.children && findAndToggle(item.children)) return true;
                 }
                 return false;
             }
-            
             findAndToggle(fileStructure);
         }
 
         // Select and load file
         async function selectFile(path) {
             const token = localStorage.getItem('access_token');
-            
             try {
                 toastr.info('Loading file...', 'ℹ Loading');
-
                 const response = await fetch(
                     `${API_URL}/api/repository/file/${selectedRepo.owner}/${selectedRepo.name}?path=${encodeURIComponent(path)}`,
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Accept': 'application/json'
-                        }
-                    }
+                    { headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' } }
                 );
-
-                if (!response.ok) {
-                    throw new Error('Failed to load file');
-                }
-
+                if (!response.ok) throw new Error('Failed to load file');
                 const fileData = await response.json();
                 currentFile = fileData;
+                originalContent = fileData.content;
 
-                // Update UI
                 document.getElementById('emptyState').classList.add('hidden');
                 document.getElementById('fileHeader').classList.remove('hidden');
                 document.getElementById('codeEditor').classList.remove('hidden');
                 document.getElementById('currentFileName').textContent = fileData.name;
                 document.getElementById('codeEditor').value = fileData.content;
                 
-                // Update active state
-                document.querySelectorAll('.file-item').forEach(item => {
-                    item.classList.remove('active');
-                });
+                // Update context info
+                document.getElementById('contextInfo').textContent = `Editing: ${fileData.path}`;
+                
+                document.querySelectorAll('.file-item').forEach(item => item.classList.remove('active'));
                 document.querySelector(`.file-item[data-path="${path}"]`).classList.add('active');
 
                 toastr.success('File loaded successfully', '✓ Success');
-
             } catch (error) {
                 console.error('Error loading file:', error);
                 toastr.error(error.message || 'Failed to load file', '⚠ Error');
             }
         }
 
+        // Track code changes
+        document.getElementById('codeEditor').addEventListener('input', () => {
+            if (!currentFile) return;
+            
+            const currentContent = document.getElementById('codeEditor').value;
+            const isModified = currentContent !== originalContent;
+            
+            if (isModified) {
+                modifiedFiles.set(currentFile.path, {
+                    path: currentFile.path,
+                    content: currentContent,
+                    sha: currentFile.sha
+                });
+                document.getElementById('fileModifiedIndicator').classList.remove('hidden');
+                document.getElementById('saveFileBtn').classList.remove('hidden');
+            } else {
+                modifiedFiles.delete(currentFile.path);
+                document.getElementById('fileModifiedIndicator').classList.add('hidden');
+                document.getElementById('saveFileBtn').classList.add('hidden');
+            }
+            
+            renderFileTree();
+        });
+
         // Handle code selection
         document.getElementById('codeEditor').addEventListener('mouseup', () => {
             const textarea = document.getElementById('codeEditor');
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-            selectedCode = textarea.value.substring(start, end);
+            selectedCode = textarea.value.substring(textarea.selectionStart, textarea.selectionEnd);
         });
 
-        // AI Analysis
-        document.getElementById('analyzeBtn').addEventListener('click', async () => {
-            const prompt = document.getElementById('aiPrompt').value.trim();
+        // Save file button
+        document.getElementById('saveFileBtn').addEventListener('click', async () => {
+            if (!currentFile) return;
             
-            if (!prompt) {
-                toastr.error('Please enter a prompt', '⚠ Error');
+            const token = localStorage.getItem('access_token');
+            const content = document.getElementById('codeEditor').value;
+            
+            try {
+                toastr.info('Saving file...', 'ℹ Saving');
+                
+                const response = await fetch(`${API_URL}/api/repository/file/update`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        owner: selectedRepo.owner,
+                        repo: selectedRepo.name,
+                        path: currentFile.path,
+                        content: content,
+                        message: `Update ${currentFile.name} via CodeAtEase`,
+                        sha: currentFile.sha,
+                        branch: selectedRepo.default_branch
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Failed to save file');
+                
+                const result = await response.json();
+                currentFile.sha = result.sha;
+                originalContent = content;
+                modifiedFiles.delete(currentFile.path);
+                
+                document.getElementById('fileModifiedIndicator').classList.add('hidden');
+                document.getElementById('saveFileBtn').classList.add('hidden');
+                renderFileTree();
+                
+                toastr.success('File saved successfully', '✓ Success');
+            } catch (error) {
+                console.error('Error saving file:', error);
+                toastr.error(error.message || 'Failed to save file', '⚠ Error');
+            }
+        });
+
+        // Push to GitHub
+        document.getElementById('pushBtn').addEventListener('click', async () => {
+            if (modifiedFiles.size === 0) {
+                toastr.warning('No changes to push', '⚠ Warning');
                 return;
             }
 
-            const analyzeBtn = document.getElementById('analyzeBtn');
-            const originalContent = analyzeBtn.innerHTML;
-            analyzeBtn.innerHTML = `
-                <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                </svg>
-                <span>Analyzing...</span>
-            `;
-            analyzeBtn.disabled = true;
+            const commitMessage = prompt('Enter commit message:', 'Update files via CodeAtEase');
+            if (!commitMessage) return;
+
+            const token = localStorage.getItem('access_token');
+            const pushBtn = document.getElementById('pushBtn');
+            const originalText = document.getElementById('pushBtnText').textContent;
+            
+            try {
+                pushBtn.disabled = true;
+                document.getElementById('pushBtnText').textContent = 'Pushing...';
+                toastr.info(`Pushing ${modifiedFiles.size} file(s)...`, 'ℹ Pushing');
+
+                const changes = Array.from(modifiedFiles.values());
+                
+                const response = await fetch(`${API_URL}/api/repository/push`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        owner: selectedRepo.owner,
+                        repo: selectedRepo.name,
+                        changes: changes,
+                        commitMessage: commitMessage,
+                        branch: selectedRepo.default_branch
+                    })
+                });
+
+                if (!response.ok) throw new Error('Failed to push changes');
+
+                const result = await response.json();
+                
+                // Update SHAs for successful pushes
+                result.results.forEach(r => {
+                    if (r.status === 'success' && currentFile && currentFile.path === r.path) {
+                        currentFile.sha = r.sha;
+                        originalContent = document.getElementById('codeEditor').value;
+                    }
+                });
+                
+                modifiedFiles.clear();
+                renderFileTree();
+                
+                toastr.success(`Pushed ${result.successCount} file(s) successfully`, '✓ Success');
+            } catch (error) {
+                console.error('Error pushing changes:', error);
+                toastr.error(error.message || 'Failed to push changes', '⚠ Error');
+            } finally {
+                pushBtn.disabled = false;
+                document.getElementById('pushBtnText').textContent = originalText;
+            }
+        });
+
+        // ==================== CHAT FUNCTIONALITY ====================
+
+        async function loadChatHistory() {
+            const token = localStorage.getItem('access_token');
+            try {
+                const response = await fetch(`${API_URL}/api/chat/history`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) return;
+                const data = await response.json();
+                if (data.history && data.history.length > 0) {
+                    data.history.forEach(msg => displayMessage(msg.role, msg.content, msg.timestamp, false));
+                }
+            } catch (error) {
+                console.error('Error loading chat history:', error);
+            }
+        }
+
+        // Send chat message
+        document.getElementById('sendChatBtn').addEventListener('click', sendMessage);
+        document.getElementById('chatInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const prompt = input.value.trim();
+            
+            if (!prompt) {
+                toastr.error('Please enter a message', '⚠ Error');
+                return;
+            }
+
+            // Display user message
+            displayMessage('user', prompt, new Date().toISOString(), true);
+            input.value = '';
+
+            // Show typing indicator
+            showTypingIndicator();
 
             const token = localStorage.getItem('access_token');
 
             try {
-                const response = await fetch(`${API_URL}/api/analyze`, {
+                const response = await fetch(`${API_URL}/api/chat`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -495,40 +730,216 @@
                     body: JSON.stringify({
                         prompt: prompt,
                         selectedCode: selectedCode,
-                        currentFile: currentFile,
+                        currentFile: currentFile || {},
                         repository: fileStructure
                     })
                 });
 
-                if (!response.ok) {
-                    throw new Error('AI analysis failed');
-                }
+                hideTypingIndicator();
+
+                if (!response.ok) throw new Error('Chat request failed');
 
                 const data = await response.json();
                 
-                // Display response
-                document.getElementById('aiEmptyState').classList.add('hidden');
-                document.getElementById('aiResponseContainer').classList.remove('hidden');
-                document.getElementById('aiResponse').textContent = data.response;
+                // Display assistant response
+                displayMessage('assistant', data.response, new Date().toISOString(), true);
 
-                toastr.success('Analysis complete', '✓ Success');
             } catch (error) {
-                console.error('Error:', error);
-                toastr.error(error.message || 'Failed to analyze code', '⚠ Error');
-            } finally {
-                analyzeBtn.innerHTML = originalContent;
-                analyzeBtn.disabled = false;
+                hideTypingIndicator();
+                console.error('Error sending message:', error);
+                displayMessage('assistant', 'Sorry, I encountered an error. Please try again.', new Date().toISOString(), true);
+                toastr.error(error.message || 'Failed to send message', '⚠ Error');
+            }
+        }
+
+        function displayMessage(role, content, timestamp, animate) {
+            const chatMessages = document.getElementById('chatMessages');
+            
+            // Remove welcome message if exists
+            const welcome = chatMessages.querySelector('.text-center');
+            if (welcome) welcome.remove();
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${animate ? '' : 'opacity-50'}`;
+            
+            const formattedTime = new Date(timestamp).toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            if (role === 'user') {
+                messageDiv.innerHTML = `
+                    <div class="user-message">
+                        <div class="flex items-start gap-2">
+                            <svg class="w-4 h-4 mt-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                            </svg>
+                            <div class="flex-1">
+                                <div class="text-xs text-gray-400 mb-1">You</div>
+                                <div class="message-content text-white">${escapeHtml(content)}</div>
+                                <div class="timestamp">${formattedTime}</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Extract code blocks for Apply button
+                const codeBlocks = extractCodeBlocks(content);
+                const hasCode = codeBlocks.length > 0;
+                
+                messageDiv.innerHTML = `
+                    <div class="assistant-message">
+                        <div class="flex items-start gap-2">
+                            <svg class="w-4 h-4 mt-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+                            </svg>
+                            <div class="flex-1">
+                                <div class="text-xs text-gray-400 mb-1">CatAI</div>
+                                <div class="message-content text-gray-300">${formatResponse(content)}</div>
+                                <div class="timestamp">${formattedTime}</div>
+                                ${hasCode ? `
+                                    <button class="apply-code-btn mt-2 px-3 py-1 bg-white text-black text-xs rounded hover:bg-gray-200 font-medium flex items-center gap-1">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                        Apply to Editor
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Add click handler for Apply button
+                if (hasCode) {
+                    const applyBtn = messageDiv.querySelector('.apply-code-btn');
+                    applyBtn.addEventListener('click', () => applyCodeToEditor(codeBlocks[0]));
+                }
+            }
+
+            chatMessages.appendChild(messageDiv);
+            
+            // Scroll to bottom
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function extractCodeBlocks(content) {
+            const codeBlocks = [];
+            const regex = /```[\w]*\n([\s\S]*?)```/g;
+            let match;
+            
+            while ((match = regex.exec(content)) !== null) {
+                codeBlocks.push(match[1].trim());
+            }
+            
+            return codeBlocks;
+        }
+
+        function applyCodeToEditor(code) {
+            if (!currentFile) {
+                toastr.error('Please select a file first', '⚠ Error');
+                return;
+            }
+            
+            const editor = document.getElementById('codeEditor');
+            editor.value = code;
+            
+            // Trigger change event to mark file as modified
+            editor.dispatchEvent(new Event('input'));
+            
+            toastr.success('Code applied to editor', '✓ Success');
+            
+            // Optionally scroll editor to top
+            editor.scrollTop = 0;
+        }
+
+        function showTypingIndicator() {
+            const chatMessages = document.getElementById('chatMessages');
+            const typingDiv = document.createElement('div');
+            typingDiv.id = 'typingIndicator';
+            typingDiv.className = 'assistant-message';
+            typingDiv.innerHTML = `
+                <div class="flex items-start gap-2">
+                    <svg class="w-4 h-4 mt-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+                    </svg>
+                    <div class="flex-1">
+                        <div class="text-xs text-gray-400 mb-1">CatAI</div>
+                        <div class="typing-indicator">
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                            <div class="typing-dot"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatMessages.appendChild(typingDiv);
+            
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) indicator.remove();
+        }
+
+        function formatResponse(content) {
+            // Simple formatting for code blocks
+            let formatted = escapeHtml(content);
+            
+            // Format code blocks with ```
+            formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+                return `<div class="code-block"><code>${code.trim()}</code></div>`;
+            });
+            
+            // Format inline code with `
+            formatted = formatted.replace(/`([^`]+)`/g, '<code style="background:#000;padding:2px 4px;border-radius:3px;">$1</code>');
+            
+            return formatted;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Clear chat
+        document.getElementById('clearChatBtn').addEventListener('click', async () => {
+            if (!confirm('Are you sure you want to clear the chat history?')) return;
+            
+            const token = localStorage.getItem('access_token');
+            try {
+                await fetch(`${API_URL}/api/chat/history`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                document.getElementById('chatMessages').innerHTML = `
+                    <div class="text-center text-gray-500 text-sm mb-4">
+                        <svg class="w-12 h-12 mx-auto mb-2 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                        </svg>
+                        <p>Start a conversation with CatAI</p>
+                        <p class="text-xs mt-1">Ask about your code, get suggestions, or request help</p>
+                    </div>
+                `;
+                
+                toastr.success('Chat history cleared', '✓ Success');
+            } catch (error) {
+                console.error('Error clearing chat:', error);
+                toastr.error('Failed to clear chat history', '⚠ Error');
             }
         });
 
         // Back button
         document.getElementById('backBtn').addEventListener('click', () => {
+            if (modifiedFiles.size > 0) {
+                if (!confirm('You have unsaved changes. Are you sure you want to leave?')) return;
+            }
             window.location.href = '/repo.html';
-        });
-
-        // Push to GitHub
-        document.getElementById('pushBtn').addEventListener('click', () => {
-            toastr.info('Push to GitHub feature - Coming soon!', 'ℹ Info');
         });
 
         // AI Panel Controls
