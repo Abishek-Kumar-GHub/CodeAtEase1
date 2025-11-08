@@ -35,10 +35,15 @@
 
         .file-item {
             transition: background 0.2s;
+            position: relative;
         }
 
         .file-item:hover {
             background: #1a1a1a;
+        }
+
+        .file-item:hover .file-menu-btn {
+            display: block;
         }
 
         .file-item.active {
@@ -48,6 +53,67 @@
 
         .file-item.modified {
             color: #FFA500;
+        }
+
+        .file-menu-btn {
+            display: none;
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .file-menu {
+            position: absolute;
+            right: 0;
+            top: 100%;
+            background: #1a1a1a;
+            border: 2px solid #333;
+            border-radius: 4px;
+            min-width: 150px;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .file-menu-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-bottom: 1px solid #333;
+        }
+
+        .file-menu-item:last-child {
+            border-bottom: none;
+        }
+
+        .file-menu-item:hover {
+            background: #2a2a2a;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #1a1a1a;
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 24px;
+            max-width: 500px;
+            width: 90%;
         }
 
         #codeEditor {
@@ -89,7 +155,6 @@
             background: #666666;
         }
 
-        /* Chat Styles */
         .chat-message {
             margin-bottom: 16px;
             animation: slideIn 0.3s ease;
@@ -188,6 +253,22 @@
             display: inline-block;
             margin-left: 8px;
         }
+
+        .root-folder {
+            border: 2px solid #333;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            background: #0a0a0a;
+        }
+
+        .root-folder-header {
+            background: #1a1a1a;
+            border-bottom: 1px solid #333;
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
     </style>
 </head>
 <body class="bg-black text-white">
@@ -201,12 +282,10 @@
         </div>
 
         <div class="flex items-center gap-4">
-            <!-- Repository Name -->
             <div class="px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg">
                 <span id="repoName" class="font-medium text-white">Loading...</span>
             </div>
 
-            <!-- Push to GitHub Button -->
             <button id="pushBtn" class="flex items-center gap-2 px-4 py-2 bg-white text-black rounded-lg hover:bg-gray-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
@@ -214,7 +293,6 @@
                 <span id="pushBtnText">Push to GitHub</span>
             </button>
 
-            <!-- Account -->
             <div class="flex items-center gap-2 px-3 py-2 bg-black border-2 border-white text-white rounded-lg">
                 <div class="w-8 h-8 bg-white text-black rounded-full flex items-center justify-center font-bold" id="userAvatar">
                     JD
@@ -222,7 +300,6 @@
                 <span class="font-medium" id="userName">John Doe</span>
             </div>
 
-            <!-- Back Button -->
             <button id="backBtn" class="flex items-center gap-2 px-4 py-2 bg-black border-2 border-white text-white rounded-lg hover:bg-gray-900 font-medium">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
@@ -304,14 +381,14 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
                         </svg>
                         <p>Start a conversation with CatAI</p>
-                        <p class="text-xs mt-1">Ask about your code, get suggestions, or request help</p>
+                        <p class="text-xs mt-1">Ask about your code or request file operations</p>
                     </div>
                 </div>
             </div>
 
             <!-- Chat Input -->
             <div class="p-4 border-t-2 border-gray-800">
-                <textarea id="chatInput" placeholder="Ask about your code..." class="w-full px-3 py-2 border-2 border-gray-700 bg-gray-900 text-white rounded-lg resize-none focus:outline-none focus:border-white placeholder-gray-500" rows="3"></textarea>
+                <textarea id="chatInput" placeholder="Ask to create files, rename, or get help..." class="w-full px-3 py-2 border-2 border-gray-700 bg-gray-900 text-white rounded-lg resize-none focus:outline-none focus:border-white placeholder-gray-500" rows="3"></textarea>
                 <div class="flex gap-2 mt-2">
                     <button id="sendChatBtn" class="flex-1 px-4 py-2 bg-white text-black rounded-lg hover:bg-gray-200 font-medium flex items-center justify-center gap-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -334,6 +411,61 @@
         </svg>
     </button>
 
+    <!-- Create File/Folder Modal -->
+    <div id="createModal" class="modal">
+        <div class="modal-content">
+            <h3 class="text-xl font-bold mb-4 text-white">Create New</h3>
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2 text-gray-300">Type</label>
+                <select id="createType" class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white">
+                    <option value="file">File</option>
+                    <option value="folder">Folder</option>
+                </select>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2 text-gray-300">Path (e.g., src/utils/helper.js)</label>
+                <input type="text" id="createPath" class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white" placeholder="path/to/file.js">
+            </div>
+            <div class="flex gap-2">
+                <button id="createConfirmBtn" class="flex-1 px-4 py-2 bg-white text-black rounded hover:bg-gray-200">Create</button>
+                <button id="createCancelBtn" class="flex-1 px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rename Modal -->
+    <div id="renameModal" class="modal">
+        <div class="modal-content">
+            <h3 class="text-xl font-bold mb-4 text-white">Rename</h3>
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2 text-gray-300">Current Path</label>
+                <input type="text" id="renameOldPath" class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white" readonly>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium mb-2 text-gray-300">New Path</label>
+                <input type="text" id="renameNewPath" class="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-white">
+            </div>
+            <div class="flex gap-2">
+                <button id="renameConfirmBtn" class="flex-1 px-4 py-2 bg-white text-black rounded hover:bg-gray-200">Rename</button>
+                <button id="renameCancelBtn" class="flex-1 px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="modal">
+        <div class="modal-content">
+            <h3 class="text-xl font-bold mb-4 text-white">Delete File</h3>
+            <p class="mb-4 text-gray-300">Are you sure you want to delete:</p>
+            <p id="deleteFilePath" class="mb-4 font-mono text-sm bg-gray-900 p-2 rounded text-white"></p>
+            <p class="mb-4 text-red-400 text-sm">This action cannot be undone!</p>
+            <div class="flex gap-2">
+                <button id="deleteConfirmBtn" class="flex-1 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Delete</button>
+                <button id="deleteCancelBtn" class="flex-1 px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Configure Toastr
         toastr.options = {
@@ -354,8 +486,10 @@
         let selectedRepo = null;
         let leftWidth = 20;
         let rightWidth = 20;
-        let modifiedFiles = new Map(); // Track modified files
-        let originalContent = ''; // Store original file content
+        let modifiedFiles = new Map();
+        let originalContent = '';
+        let currentMenuPath = null;
+        let currentMenuSha = null;
 
         // Initialize on page load
         window.addEventListener('DOMContentLoaded', async () => {
@@ -418,10 +552,34 @@
             }
         }
 
-        // Render file tree
+        // Render file tree with root folder
         function renderFileTree() {
             const fileTree = document.getElementById('fileTree');
             fileTree.innerHTML = '';
+            
+            // Create root folder
+            const rootDiv = document.createElement('div');
+            rootDiv.className = 'root-folder';
+            rootDiv.innerHTML = `
+                <div class="root-folder-header">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path>
+                        </svg>
+                        <span class="font-bold text-white">${selectedRepo.name}</span>
+                    </div>
+                    <button class="root-add-btn p-1 hover:bg-gray-700 rounded" title="Add file/folder">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="root-folder-content p-2"></div>
+            `;
+            
+            fileTree.appendChild(rootDiv);
+            
+            const rootContent = rootDiv.querySelector('.root-folder-content');
             
             function renderItem(item, level = 0) {
                 const div = document.createElement('div');
@@ -436,30 +594,329 @@
                                     '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>'
                                 }
                             </svg>
-                            <span class="text-sm text-white">${item.name}</span>
+                            <span class="text-sm text-white flex-1">${item.name}</span>
+                            <button class="file-menu-btn p-1 hover:bg-gray-700 rounded">
+                                <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                    <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
+                                </svg>
+                            </button>
                         </div>
                     `;
-                    fileTree.appendChild(div);
+                    rootContent.appendChild(div);
+                    
+                    // Add folder menu handler
+                    const menuBtn = div.querySelector('.file-menu-btn');
+                    menuBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        showFolderMenu(e, item.path);
+                    });
+                    
                     if (item.expanded && item.children) {
                         item.children.forEach(child => renderItem(child, level + 1));
                     }
                 } else {
                     div.innerHTML = `
-                        <div class="file-item flex items-center gap-2 px-2 py-1.5 cursor-pointer rounded ${isModified ? 'modified' : ''}" data-path="${item.path}" data-type="file" style="padding-left: ${level * 16 + 8}px">
+                        <div class="file-item flex items-center gap-2 px-2 py-1.5 cursor-pointer rounded ${isModified ? 'modified' : ''}" data-path="${item.path}" data-type="file" data-sha="${item.sha || ''}" style="padding-left: ${level * 16 + 8}px">
                             <svg class="file-icon w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                             </svg>
-                            <span class="text-sm">${item.name}</span>
+                            <span class="text-sm flex-1">${item.name}</span>
                             ${isModified ? '<span class="modified-indicator"></span>' : ''}
+                            <button class="file-menu-btn p-1 hover:bg-gray-700 rounded">
+                                <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                    <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
+                                </svg>
+                            </button>
                         </div>
                     `;
-                    fileTree.appendChild(div);
+                    rootContent.appendChild(div);
+                    
+                    // Add file menu handler
+                    const menuBtn = div.querySelector('.file-menu-btn');
+                    menuBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const fileItem = e.target.closest('.file-item');
+                        showFileMenu(e, item.path, fileItem.dataset.sha);
+                    });
                 }
             }
             
             fileStructure.forEach(item => renderItem(item));
+            
+            // Add root folder add button handler
+            const rootAddBtn = rootDiv.querySelector('.root-add-btn');
+            rootAddBtn.addEventListener('click', () => {
+                openCreateModal('');
+            });
+            
             updateModifiedCount();
         }
+
+        // Show file context menu
+        function showFileMenu(e, path, sha) {
+            closeAllMenus();
+            currentMenuPath = path;
+            currentMenuSha = sha;
+            
+            const menu = document.createElement('div');
+            menu.className = 'file-menu';
+            menu.innerHTML = `
+                <div class="file-menu-item" data-action="rename">
+                    <svg class="w-3 h-3 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                    </svg>
+                    Rename
+                </div>
+                <div class="file-menu-item text-red-400" data-action="delete">
+                    <svg class="w-3 h-3 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                    </svg>
+                    Delete
+                </div>
+            `;
+            
+            const fileItem = e.target.closest('.file-item');
+            fileItem.style.position = 'relative';
+            fileItem.appendChild(menu);
+            
+            // Add menu item handlers
+            menu.querySelectorAll('.file-menu-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const action = item.dataset.action;
+                    closeAllMenus();
+                    
+                    if (action === 'rename') {
+                        openRenameModal(currentMenuPath);
+                    } else if (action === 'delete') {
+                        openDeleteModal(currentMenuPath, currentMenuSha);
+                    }
+                });
+            });
+        }
+
+        // Show folder context menu
+        function showFolderMenu(e, path) {
+            closeAllMenus();
+            currentMenuPath = path;
+            
+            const menu = document.createElement('div');
+            menu.className = 'file-menu';
+            menu.innerHTML = `
+                <div class="file-menu-item" data-action="addfile">
+                    <svg class="w-3 h-3 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    Add File
+                </div>
+                <div class="file-menu-item" data-action="rename">
+                    <svg class="w-3 h-3 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                    </svg>
+                    Rename
+                </div>
+            `;
+            
+            const folderItem = e.target.closest('.file-item');
+            folderItem.style.position = 'relative';
+            folderItem.appendChild(menu);
+            
+            // Add menu item handlers
+            menu.querySelectorAll('.file-menu-item').forEach(item => {
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const action = item.dataset.action;
+                    closeAllMenus();
+                    
+                    if (action === 'addfile') {
+                        openCreateModal(currentMenuPath);
+                    } else if (action === 'rename') {
+                        openRenameModal(currentMenuPath);
+                    }
+                });
+            });
+        }
+
+        // Close all context menus
+        function closeAllMenus() {
+            document.querySelectorAll('.file-menu').forEach(menu => menu.remove());
+        }
+
+        // Close menus on click outside
+        document.addEventListener('click', closeAllMenus);
+
+        // Open create modal
+        function openCreateModal(parentPath) {
+            document.getElementById('createPath').value = parentPath ? `${parentPath}/` : '';
+            document.getElementById('createModal').classList.add('active');
+            document.getElementById('createPath').focus();
+        }
+
+        // Create file/folder
+        document.getElementById('createConfirmBtn').addEventListener('click', async () => {
+            const type = document.getElementById('createType').value;
+            const path = document.getElementById('createPath').value.trim();
+            
+            if (!path) {
+                toastr.error('Please enter a path', '⚠ Error');
+                return;
+            }
+            
+            if (type === 'file') {
+                await createFile(path);
+            } else {
+                // For folders, create a .gitkeep file
+                await createFile(`${path}/.gitkeep`);
+            }
+            
+            document.getElementById('createModal').classList.remove('active');
+        });
+
+        document.getElementById('createCancelBtn').addEventListener('click', () => {
+            document.getElementById('createModal').classList.remove('active');
+        });
+
+        // Create file function
+        async function createFile(path) {
+            const token = localStorage.getItem('access_token');
+            
+            try {
+                toastr.info('Creating file...', 'ℹ Creating');
+                
+                const response = await fetch(`${API_URL}/api/repository/file/create`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        owner: selectedRepo.owner,
+                        repo: selectedRepo.name,
+                        path: path,
+                        content: '',
+                        message: `Create ${path} via CodeAtEase`,
+                        branch: selectedRepo.default_branch
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Failed to create file');
+                
+                await loadRepositoryFiles();
+                toastr.success('File created successfully', '✓ Success');
+            } catch (error) {
+                console.error('Error creating file:', error);
+                toastr.error(error.message || 'Failed to create file', '⚠ Error');
+            }
+        }
+
+        // Open rename modal
+        function openRenameModal(oldPath) {
+            document.getElementById('renameOldPath').value = oldPath;
+            document.getElementById('renameNewPath').value = oldPath;
+            document.getElementById('renameModal').classList.add('active');
+            document.getElementById('renameNewPath').focus();
+        }
+
+        // Rename file
+        document.getElementById('renameConfirmBtn').addEventListener('click', async () => {
+            const oldPath = document.getElementById('renameOldPath').value;
+            const newPath = document.getElementById('renameNewPath').value.trim();
+            
+            if (!newPath || oldPath === newPath) {
+                toastr.error('Please enter a new path', '⚠ Error');
+                return;
+            }
+            
+            const token = localStorage.getItem('access_token');
+            
+            try {
+                toastr.info('Renaming...', 'ℹ Renaming');
+                
+                const response = await fetch(`${API_URL}/api/repository/file/rename`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        owner: selectedRepo.owner,
+                        repo: selectedRepo.name,
+                        oldPath: oldPath,
+                        newPath: newPath,
+                        message: `Rename ${oldPath} to ${newPath} via CodeAtEase`,
+                        sha: currentMenuSha,
+                        branch: selectedRepo.default_branch
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Failed to rename');
+                
+                await loadRepositoryFiles();
+                toastr.success('Renamed successfully', '✓ Success');
+                document.getElementById('renameModal').classList.remove('active');
+            } catch (error) {
+                console.error('Error renaming:', error);
+                toastr.error(error.message || 'Failed to rename', '⚠ Error');
+            }
+        });
+
+        document.getElementById('renameCancelBtn').addEventListener('click', () => {
+            document.getElementById('renameModal').classList.remove('active');
+        });
+
+        // Open delete modal
+        function openDeleteModal(path, sha) {
+            document.getElementById('deleteFilePath').textContent = path;
+            currentMenuPath = path;
+            currentMenuSha = sha;
+            document.getElementById('deleteModal').classList.add('active');
+        }
+
+        // Delete file
+        document.getElementById('deleteConfirmBtn').addEventListener('click', async () => {
+            const token = localStorage.getItem('access_token');
+            
+            try {
+                toastr.info('Deleting...', 'ℹ Deleting');
+                
+                const response = await fetch(`${API_URL}/api/repository/file/delete`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        owner: selectedRepo.owner,
+                        repo: selectedRepo.name,
+                        path: currentMenuPath,
+                        message: `Delete ${currentMenuPath} via CodeAtEase`,
+                        sha: currentMenuSha,
+                        branch: selectedRepo.default_branch
+                    })
+                });
+                
+                if (!response.ok) throw new Error('Failed to delete');
+                
+                // If current file was deleted, clear editor
+                if (currentFile && currentFile.path === currentMenuPath) {
+                    currentFile = null;
+                    document.getElementById('emptyState').classList.remove('hidden');
+                    document.getElementById('fileHeader').classList.add('hidden');
+                    document.getElementById('codeEditor').classList.add('hidden');
+                }
+                
+                await loadRepositoryFiles();
+                toastr.success('Deleted successfully', '✓ Success');
+                document.getElementById('deleteModal').classList.remove('active');
+            } catch (error) {
+                console.error('Error deleting:', error);
+                toastr.error(error.message || 'Failed to delete', '⚠ Error');
+            }
+        });
+
+        document.getElementById('deleteCancelBtn').addEventListener('click', () => {
+            document.getElementById('deleteModal').classList.remove('active');
+        });
 
         // Update modified files count
         function updateModifiedCount() {
@@ -480,7 +937,7 @@
         // Handle file/folder click
         document.addEventListener('click', (e) => {
             const fileItem = e.target.closest('.file-item');
-            if (fileItem) {
+            if (fileItem && !e.target.closest('.file-menu-btn')) {
                 const path = fileItem.dataset.path;
                 const type = fileItem.dataset.type;
                 if (type === 'folder') {
@@ -526,7 +983,6 @@
                 document.getElementById('currentFileName').textContent = fileData.name;
                 document.getElementById('codeEditor').value = fileData.content;
                 
-                // Update context info
                 document.getElementById('contextInfo').textContent = `Editing: ${fileData.path}`;
                 
                 document.querySelectorAll('.file-item').forEach(item => item.classList.remove('active'));
@@ -654,7 +1110,6 @@
 
                 const result = await response.json();
                 
-                // Update SHAs for successful pushes
                 result.results.forEach(r => {
                     if (r.status === 'success' && currentFile && currentFile.path === r.path) {
                         currentFile.sha = r.sha;
@@ -693,7 +1148,6 @@
             }
         }
 
-        // Send chat message
         document.getElementById('sendChatBtn').addEventListener('click', sendMessage);
         document.getElementById('chatInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -711,11 +1165,9 @@
                 return;
             }
 
-            // Display user message
             displayMessage('user', prompt, new Date().toISOString(), true);
             input.value = '';
 
-            // Show typing indicator
             showTypingIndicator();
 
             const token = localStorage.getItem('access_token');
@@ -741,7 +1193,6 @@
 
                 const data = await response.json();
                 
-                // Display assistant response
                 displayMessage('assistant', data.response, new Date().toISOString(), true);
 
             } catch (error) {
@@ -755,7 +1206,6 @@
         function displayMessage(role, content, timestamp, animate) {
             const chatMessages = document.getElementById('chatMessages');
             
-            // Remove welcome message if exists
             const welcome = chatMessages.querySelector('.text-center');
             if (welcome) welcome.remove();
 
@@ -783,7 +1233,6 @@
                     </div>
                 `;
             } else {
-                // Extract code blocks for Apply button
                 const codeBlocks = extractCodeBlocks(content);
                 const hasCode = codeBlocks.length > 0;
                 
@@ -810,7 +1259,6 @@
                     </div>
                 `;
                 
-                // Add click handler for Apply button
                 if (hasCode) {
                     const applyBtn = messageDiv.querySelector('.apply-code-btn');
                     applyBtn.addEventListener('click', () => applyCodeToEditor(codeBlocks[0]));
@@ -819,7 +1267,6 @@
 
             chatMessages.appendChild(messageDiv);
             
-            // Scroll to bottom
             const chatContainer = document.getElementById('chatContainer');
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
@@ -845,12 +1292,10 @@
             const editor = document.getElementById('codeEditor');
             editor.value = code;
             
-            // Trigger change event to mark file as modified
             editor.dispatchEvent(new Event('input'));
             
             toastr.success('Code applied to editor', '✓ Success');
             
-            // Optionally scroll editor to top
             editor.scrollTop = 0;
         }
 
@@ -886,15 +1331,12 @@
         }
 
         function formatResponse(content) {
-            // Simple formatting for code blocks
             let formatted = escapeHtml(content);
             
-            // Format code blocks with ```
             formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
                 return `<div class="code-block"><code>${code.trim()}</code></div>`;
             });
             
-            // Format inline code with `
             formatted = formatted.replace(/`([^`]+)`/g, '<code style="background:#000;padding:2px 4px;border-radius:3px;">$1</code>');
             
             return formatted;
@@ -906,7 +1348,6 @@
             return div.innerHTML;
         }
 
-        // Clear chat
         document.getElementById('clearChatBtn').addEventListener('click', async () => {
             if (!confirm('Are you sure you want to clear the chat history?')) return;
             
@@ -923,7 +1364,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
                         </svg>
                         <p>Start a conversation with CatAI</p>
-                        <p class="text-xs mt-1">Ask about your code, get suggestions, or request help</p>
+                        <p class="text-xs mt-1">Ask about your code or request file operations</p>
                     </div>
                 `;
                 
@@ -934,7 +1375,6 @@
             }
         });
 
-        // Back button
         document.getElementById('backBtn').addEventListener('click', () => {
             if (modifiedFiles.size > 0) {
                 if (!confirm('You have unsaved changes. Are you sure you want to leave?')) return;
@@ -942,7 +1382,6 @@
             window.location.href = '/repo.html';
         });
 
-        // AI Panel Controls
         document.getElementById('closeAiBtn').addEventListener('click', () => {
             rightWidth = 0;
             updatePanelWidths();
@@ -1012,6 +1451,15 @@
                 document.getElementById('floatingAiBtn').classList.add('hidden');
             }
         }
+
+        // Close modals with ESC key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                document.querySelectorAll('.modal').forEach(modal => {
+                    modal.classList.remove('active');
+                });
+            }
+        });
     </script>
 </body>
 </html>

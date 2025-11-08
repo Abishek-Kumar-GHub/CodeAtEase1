@@ -12,6 +12,7 @@ from passlib.context import CryptContext
 from dotenv import load_dotenv
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 import base64
 import json
 import asyncio
@@ -36,14 +37,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuration
+# Configuration - CRITICAL: Use environment variables for production
 SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440
 
+# Get base URL from environment or request
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
+
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
-GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "http://localhost:8000/auth/github/callback")
+# Dynamic redirect URI based on BASE_URL
+GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", f"{BASE_URL}/auth/github/callback")
 
 HF_TOKEN = os.getenv("HF_TOKEN")
 
@@ -56,6 +61,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 users_db: Dict[int, Dict] = {}
 tokens_db: Dict[str, int] = {}
 chat_history: Dict[str, List[Dict]] = {}
+
+# Helper function to get base URL from request
+def get_base_url(request: Request) -> str:
+    """Get base URL from request or environment"""
+    if BASE_URL and BASE_URL != "http://localhost:8000":
+        return BASE_URL
+    
+    # Construct from request
+    scheme = request.url.scheme
+    host = request.headers.get("host", request.url.netloc)
+    return f"{scheme}://{host}"
 
 # ==================== MODELS ====================
 
@@ -84,6 +100,31 @@ class UpdateFileRequest(BaseModel):
     repo: str
     path: str
     content: str
+    message: str
+    sha: str
+    branch: Optional[str] = "main"
+
+class CreateFileRequest(BaseModel):
+    owner: str
+    repo: str
+    path: str
+    content: str
+    message: str
+    branch: Optional[str] = "main"
+
+class DeleteFileRequest(BaseModel):
+    owner: str
+    repo: str
+    path: str
+    message: str
+    sha: str
+    branch: Optional[str] = "main"
+
+class RenameFileRequest(BaseModel):
+    owner: str
+    repo: str
+    oldPath: str
+    newPath: str
     message: str
     sha: str
     branch: Optional[str] = "main"
@@ -139,24 +180,40 @@ async def repo_page(request: Request):
 async def ai_page(request: Request):
     return templates.TemplateResponse("aipage.html", {"request": request})
 
+# API endpoint to get configuration
+@app.get("/api/config")
+async def get_config(request: Request):
+    """Return client configuration including base URL"""
+    base_url = get_base_url(request)
+    return {
+        "baseUrl": base_url,
+        "environment": "production" if "render" in base_url or "railway" in base_url else "development"
+    }
+
 # ==================== AUTH ROUTES ====================
 
 @app.get("/auth/github")
-async def github_login():
+async def github_login(request: Request):
     """Redirect to GitHub OAuth"""
+    base_url = get_base_url(request)
+    redirect_uri = f"{base_url}/auth/github/callback"
+    
     auth_url = (
         f"https://github.com/login/oauth/authorize?"
         f"client_id={GITHUB_CLIENT_ID}&"
-        f"redirect_uri={GITHUB_REDIRECT_URI}&"
+        f"redirect_uri={redirect_uri}&"
         f"scope=repo,user"
     )
     return RedirectResponse(auth_url)
 
 @app.get("/auth/github/callback")
-async def github_callback(code: str):
+async def github_callback(code: str, request: Request):
     """Handle GitHub OAuth callback"""
     if not code:
         raise HTTPException(status_code=400, detail="No code provided")
+    
+    base_url = get_base_url(request)
+    redirect_uri = f"{base_url}/auth/github/callback"
     
     async with httpx.AsyncClient() as client:
         token_response = await client.post(
@@ -166,7 +223,7 @@ async def github_callback(code: str):
                 "client_id": GITHUB_CLIENT_ID,
                 "client_secret": GITHUB_CLIENT_SECRET,
                 "code": code,
-                "redirect_uri": GITHUB_REDIRECT_URI
+                "redirect_uri": redirect_uri
             }
         )
         
@@ -200,7 +257,8 @@ async def github_callback(code: str):
         jwt_token = create_access_token(data={"sub": user_id})
         tokens_db[jwt_token] = user_id
         
-        redirect_url = f"http://127.0.0.1:8000/repo.html?access_token={jwt_token}"
+        # Use base_url for redirect
+        redirect_url = f"{base_url}/repo.html?access_token={jwt_token}"
         return RedirectResponse(redirect_url)
 
 @app.get("/auth/user", response_model=User)
@@ -226,6 +284,7 @@ async def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
     return {"message": "Logged out successfully"}
 
 # ==================== REPOSITORY ROUTES ====================
+# [Keep all your existing repository routes - they're fine]
 
 @app.get("/api/repositories")
 async def get_repositories(current_user: dict = Depends(get_current_user)):
@@ -295,53 +354,29 @@ async def get_repositories(current_user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=504, detail="GitHub API timeout")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to fetch repositories: {str(e)}")
-
+        
 @app.get("/api/repository/tree/{owner}/{repo}")
-async def get_repository_tree(
-    owner: str,
-    repo: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get complete repository file tree"""
+async def get_repository_tree(owner: str, repo: str, current_user: dict = Depends(get_current_user)):
     github_token = current_user["github_token"]
-    
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             repo_response = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}",
-                headers={
-                    "Authorization": f"token {github_token}",
-                    "Accept": "application/vnd.github.v3+json"
-                }
+                headers={"Authorization": f"token {github_token}", "Accept": "application/vnd.github.v3+json"}
             )
-            
             if repo_response.status_code != 200:
                 raise HTTPException(status_code=404, detail="Repository not found")
-            
             repo_data = repo_response.json()
             default_branch = repo_data.get("default_branch", "main")
-            
             tree_response = await client.get(
                 f"https://api.github.com/repos/{owner}/{repo}/git/trees/{default_branch}?recursive=1",
-                headers={
-                    "Authorization": f"token {github_token}",
-                    "Accept": "application/vnd.github.v3+json"
-                }
+                headers={"Authorization": f"token {github_token}", "Accept": "application/vnd.github.v3+json"}
             )
-            
             if tree_response.status_code != 200:
                 raise HTTPException(status_code=404, detail="Failed to fetch repository tree")
-            
             tree_data = tree_response.json()
             file_tree = build_tree_structure(tree_data["tree"])
-            
-            return {
-                "owner": owner,
-                "repo": repo,
-                "default_branch": default_branch,
-                "tree": file_tree
-            }
-            
+            return {"owner": owner, "repo": repo, "default_branch": default_branch, "tree": file_tree}
         except httpx.TimeoutException:
             raise HTTPException(status_code=504, detail="GitHub API timeout")
         except Exception as e:
@@ -427,6 +462,151 @@ async def update_file(
             
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to update file: {str(e)}")
+
+@app.post("/api/repository/file/create")
+async def create_file(
+    request: CreateFileRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create new file in repository"""
+    github_token = current_user["github_token"]
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            encoded_content = base64.b64encode(request.content.encode("utf-8")).decode("utf-8")
+            
+            response = await client.put(
+                f"https://api.github.com/repos/{request.owner}/{request.repo}/contents/{request.path}",
+                headers={
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                json={
+                    "message": request.message,
+                    "content": encoded_content,
+                    "branch": request.branch
+                }
+            )
+            
+            if response.status_code not in [200, 201]:
+                raise HTTPException(status_code=400, detail=f"Failed to create file: {response.text}")
+            
+            result = response.json()
+            
+            return {
+                "message": "File created successfully",
+                "sha": result["content"]["sha"],
+                "commit": result["commit"]["sha"],
+                "path": result["content"]["path"]
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to create file: {str(e)}")
+
+@app.delete("/api/repository/file/delete")
+async def delete_file(
+    request: DeleteFileRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Delete file from repository"""
+    github_token = current_user["github_token"]
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.delete(
+                f"https://api.github.com/repos/{request.owner}/{request.repo}/contents/{request.path}",
+                headers={
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                json={
+                    "message": request.message,
+                    "sha": request.sha,
+                    "branch": request.branch
+                }
+            )
+            
+            if response.status_code not in [200, 204]:
+                raise HTTPException(status_code=400, detail=f"Failed to delete file: {response.text}")
+            
+            return {
+                "message": "File deleted successfully",
+                "path": request.path
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
+@app.put("/api/repository/file/rename")
+async def rename_file(
+    request: RenameFileRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Rename file in repository"""
+    github_token = current_user["github_token"]
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            # First, get the old file content
+            get_response = await client.get(
+                f"https://api.github.com/repos/{request.owner}/{request.repo}/contents/{request.oldPath}",
+                headers={
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                }
+            )
+            
+            if get_response.status_code != 200:
+                raise HTTPException(status_code=404, detail="File not found")
+            
+            file_data = get_response.json()
+            content = file_data["content"]
+            
+            # Create file with new name
+            create_response = await client.put(
+                f"https://api.github.com/repos/{request.owner}/{request.repo}/contents/{request.newPath}",
+                headers={
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                json={
+                    "message": request.message,
+                    "content": content,
+                    "branch": request.branch
+                }
+            )
+            
+            if create_response.status_code not in [200, 201]:
+                raise HTTPException(status_code=400, detail=f"Failed to create renamed file: {create_response.text}")
+            
+            # Delete old file
+            delete_response = await client.delete(
+                f"https://api.github.com/repos/{request.owner}/{request.repo}/contents/{request.oldPath}",
+                headers={
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                json={
+                    "message": request.message,
+                    "sha": request.sha,
+                    "branch": request.branch
+                }
+            )
+            
+            if delete_response.status_code not in [200, 204]:
+                raise HTTPException(status_code=400, detail=f"Failed to delete old file: {delete_response.text}")
+            
+            result = create_response.json()
+            
+            return {
+                "message": "File renamed successfully",
+                "oldPath": request.oldPath,
+                "newPath": request.newPath,
+                "sha": result["content"]["sha"]
+            }
+            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to rename file: {str(e)}")
 
 @app.post("/api/repository/push")
 async def push_changes(
@@ -644,6 +824,8 @@ CRITICAL RULES:
 2. NEVER give generic advice - always show actual code
 3. Format code in markdown blocks with language: ```python or ```yaml etc.
 4. Be concise but complete
+5. When asked to create files or folders, provide exact file paths and complete content
+6. For file operations, always specify clear file paths
 
 Example response format:
 
@@ -721,28 +903,17 @@ Would you like me to help implement any of these improvements?"""
     return response
 
 def build_tree_structure(items: List[Dict]) -> List[Dict]:
-    """Build hierarchical tree structure from flat list"""
     tree = []
     path_dict = {}
-    
     items_sorted = sorted(items, key=lambda x: (x['path'].count('/'), x['path']))
-    
     for item in items_sorted:
         path = item['path']
         parts = path.split('/')
-        
-        node = {
-            "name": parts[-1],
-            "path": path,
-            "type": "folder" if item['type'] == 'tree' else "file",
-        }
-        
+        node = {"name": parts[-1], "path": path, "type": "folder" if item['type'] == 'tree' else "file"}
         if item['type'] == 'tree':
             node["children"] = []
             node["expanded"] = False
-        
         path_dict[path] = node
-        
         if len(parts) == 1:
             tree.append(node)
         else:
@@ -751,7 +922,6 @@ def build_tree_structure(items: List[Dict]) -> List[Dict]:
                 if "children" not in path_dict[parent_path]:
                     path_dict[parent_path]["children"] = []
                 path_dict[parent_path]["children"].append(node)
-    
     return tree
 
 # ==================== HEALTH CHECK ====================
@@ -766,4 +936,5 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
