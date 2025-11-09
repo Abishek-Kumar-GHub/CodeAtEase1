@@ -266,11 +266,11 @@ async def github_callback(code: str, request: Request):
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user"""
     return User(
-        id=current_user["id"],
-        username=current_user["username"],
-        name=current_user["name"],
+        id=current_user.get("id"),
+        username=current_user.get("username", "unknown"),
+        name=current_user.get("name", "Unknown User"),
         email=current_user.get("email", ""),
-        avatar=current_user["avatar"]
+        avatar=current_user.get("avatar") or current_user.get("avatar_url", "??")
     )
 
 @app.post("/auth/logout")
