@@ -245,12 +245,17 @@ async def github_callback(code: str, request: Request):
         user_data = user_response.json()
         user_id = user_data["id"]
         
+        # Handle None values from GitHub API
+        username = user_data.get("login", "unknown")
+        name = user_data.get("name") or username  # Use username if name is None
+        email = user_data.get("email") or ""
+        
         users_db[user_id] = {
             "id": user_id,
-            "username": user_data["login"],
-            "name": user_data.get("name", user_data["login"]),
-            "email": user_data.get("email", ""),
-            "avatar": user_data["login"][:2].upper(),
+            "username": username,
+            "name": name,  # This is now guaranteed to be a string
+            "email": email,
+            "avatar": username[:2].upper(),
             "github_token": github_access_token,
             "created_at": datetime.now().isoformat()
         }
@@ -265,12 +270,18 @@ async def github_callback(code: str, request: Request):
 @app.get("/auth/user", response_model=User)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user"""
+    # Handle None values explicitly
+    username = current_user.get("username") or "unknown"
+    name = current_user.get("name") or current_user.get("username") or "Unknown User"
+    email = current_user.get("email") or ""
+    avatar = current_user.get("avatar") or current_user.get("avatar_url") or username[:2].upper()
+    
     return User(
         id=current_user.get("id"),
-        username=current_user.get("username", "unknown"),
-        name=current_user.get("name", "Unknown User"),
-        email=current_user.get("email", ""),
-        avatar=current_user.get("avatar") or current_user.get("avatar_url", "??")
+        username=username,
+        name=name,
+        email=email,
+        avatar=avatar
     )
 
 @app.post("/auth/logout")
