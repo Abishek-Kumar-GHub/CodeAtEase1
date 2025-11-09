@@ -50,6 +50,7 @@ GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 # Dynamic redirect URI based on BASE_URL
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", f"{BASE_URL}/auth/github/callback")
 
+#Huggingface Token
 HF_TOKEN = os.getenv("HF_TOKEN")
 
 # Security
