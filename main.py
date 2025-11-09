@@ -266,9 +266,8 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user"""
     return User(
         id=current_user["id"],
-        username=current_user["username"],
-        name=current_user["name"],
-        email=current_user.get("email", ""),
+        login=current_user["login"],
+        name=current_user.get("name") or current_user["login"],  # ✅ fallback
         avatar=current_user["avatar"]
     )
 
@@ -937,4 +936,5 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
+
     uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
