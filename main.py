@@ -266,10 +266,11 @@ async def github_callback(code: str, request: Request):
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user"""
     return User(
-        id=current_user.get("id"),
-        login=current_user.get("login", "unknown"),
-        name=current_user.get("name") or current_user.get("login", "unknown"),
-        avatar=current_user.get("avatar") or current_user.get("avatar_url")
+        id=current_user["id"],
+        username=current_user["username"],
+        name=current_user["name"],
+        email=current_user.get("email", ""),
+        avatar=current_user["avatar"]
     )
 
 @app.post("/auth/logout")
@@ -937,6 +938,4 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
-
     uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
-
